@@ -165,7 +165,7 @@ Each is an insight card in a "Code Health" surface inside PostHog.
 
 **Benchmarks become the moat.** Opt-in cross-customer aggregates: *"Your flag debt ratio is 34%. P50 across SaaS companies your size is 18%."* No competitor can replicate this without comparable data.
 
-**Prototype stays local.** Data story is the *vision* you pitch, not the thing you build in week one. Adding telemetry to the prototype introduces privacy concerns, slows the demo, and doesn't help close the interview loop.
+**Prototype stays local.** Data story is the *vision* you pitch, not the thing you build upfront. Adding telemetry to the prototype introduces privacy concerns, slows the demo, and doesn't help close the interview loop.
 
 ### 1.14 The runtime data bet (Phase 2)
 
@@ -221,13 +221,13 @@ Done well, privacy becomes part of the trust story. Done badly, it kills the fea
 
 ### 1.16 Phased roadmap
 
-| Phase | What | Data collection | Timeline |
-|-------|------|-----------------|----------|
-| 0 | Local MCP (this project) | None | Weekend |
-| 1 | PostHog "Stale Flags" dashboard from existing evaluation data | Existing events only | Quarter |
-| 2 | Ship lifecycle states + GitHub app for PR automation | Existing events | 2 quarters |
-| 3 | Call-site telemetry (opt-in, hashed) | New SDK field | 3+ quarters |
-| 4 | Cross-customer benchmarks, LLM-inferred scanner patterns | Aggregated, opt-in | Year+ |
+| Phase | What | Data collection |
+|-------|------|-----------------|
+| 0 | Local MCP (this project) | None |
+| 1 | PostHog "Stale Flags" dashboard from existing evaluation data | Existing events only |
+| 2 | Ship lifecycle states + GitHub app for PR automation | Existing events |
+| 3 | Call-site telemetry (opt-in, hashed) | New SDK field |
+| 4 | Cross-customer benchmarks, LLM-inferred scanner patterns | Aggregated, opt-in |
 
 Phase 0 is defensible standalone. Each later phase stands on its own and builds on the last.
 
@@ -375,14 +375,14 @@ Backdate "old" flags via API so timestamps look real.
 
 ## 7. Phased Build Plan
 
-### Week 0: Prior-art pass (half-day)
+### Prior-art pass
 
 - Clone `ld-find-code-refs`. Skim the code.
-- Read last 2 years of GitHub issues. Catalog recurring edge cases.
+- Read recurring GitHub issues. Catalog edge cases.
 - Port relevant TS/JS regex patterns + default exclusion list.
 - Note their alias config syntax; adopt wholesale.
 
-### Week 1: Core MCP (read-only)
+### Core MCP (read-only)
 
 - TS scaffold, MCP SDK stdio transport, one dummy tool to verify wiring.
 - PostHog client: list flags with pagination, get tags, get evaluation metadata.
@@ -390,18 +390,18 @@ Backdate "old" flags via API so timestamps look real.
 - `find_stale_flags`: fetch → filter by rollout + tag → scan → classify → three buckets.
 - Fixture tests for every bucket including the `permanent`-tag case.
 
-### Week 2: Cleanup and write path
+### Cleanup and write path
 
 - `propose_cleanup` returns code-edit plan.
 - `archive_flag` with dry-run default, confirm gate, audit log.
 - Safety layer: paths, env, prod guard.
 - End-to-end test: MCP + demo app + demo PostHog project.
 
-### Week 3: Polish
+### Polish
 
 - README with install + GIF demo.
-- 2-minute screencast: Claude Code session, stale flags found, PR opened, flag archived.
-- One-page writeup of honest limitations: wrapper detection, dynamic keys, monorepo, multi-repo.
+- Screencast: Claude Code session, stale flags found, PR opened, flag archived.
+- Writeup of honest limitations: wrapper detection, dynamic keys, monorepo, multi-repo.
 
 ## 8. Known Gaps
 

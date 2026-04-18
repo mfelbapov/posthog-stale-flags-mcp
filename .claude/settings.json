@@ -1,5 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "ALLOW_PROD": "false"
+  },
   "permissions": {
     "allow": [
       "Bash(pnpm:*)",
@@ -23,7 +26,9 @@
       "Bash(ls:*)",
       "Bash(cat:*)",
       "Bash(mkdir:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Edit(/.claude/skills/commit-and-push/**)",
+      "Edit(/.claude/skills/push-merge-main/**)"
     ],
     "deny": [
       "Bash(rm -rf:*)",
@@ -38,8 +43,5 @@
       "Bash(curl:*)",
       "Bash(wget:*)"
     ]
-  },
-  "env": {
-    "ALLOW_PROD": "false"
   }
 }
