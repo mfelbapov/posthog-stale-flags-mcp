@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Pre-commit hook: enforces the TDD-with-Gherkin coupling rules.
+#
+# Install:
+#   ln -s ../../scripts/hooks/pre-commit .git/hooks/pre-commit
+#   chmod +x scripts/hooks/pre-commit
+#
+# Rules:
+#   1. If a commit modifies src/features/<X>/**, it must also stage
+#      features/<X>.feature OR a file under test/features/<X>/**.
+#   2. If a commit modifies src/shared/**, it must also stage at least one
+#      file under test/features/**.
+#   3. If a commit modifies src/features/<X>/** and features/<X>.feature has
+#      frontmatter status: frozen, the commit is rejected.
+#   4. scripts/check-features.mjs must exit 0.
+#
+# Escape hatch:
+#   Include `[no-feature]` anywhere in the commit message to skip rules 1–3.
+#   Useful for pure renames, import reordering, and behavior-preserving
+#   refactors. Rule 4 (drift linter) always runs.
+#
+# Whitespace/comment-only edits are stripped before the coupling check runs,
+# so format-only changes don't trigger rules 1–2.
+
+set -euo pipefail
+
+# Resolve repo root (hook runs with cwd = repo root already, but be explicit).
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+COMMIT_MSG_FILE=".git/COMMIT_EDITMSG"
+COMMIT_MSG=""
+if [[ -f "$COMMIT_MSG_FILE" ]]; then
+  COMMIT_MSG="$(cat "$COMMIT_MSG_FILE")"
+fi
+
+# Check for [no-feature] trailer (case-insensitive).
+skip_coupling=0
+if grep -qiE '\[no-feature\]' <<<"$COMMIT_MSG"; then
+  skip_coupling=1
+fi
+
+# Staged file list.
+mapfile -t STAGED < <(git diff --cached --name-only --diff-filter=ACMR)
+
+# Semantic diff: strip whitespace and // + /* */ comments from staged diff.
+# If the result has no non-empty lines on src/** adds/removes, skip coupling.
+has_semantic_src_change() {
+  local diff_output
+  diff_output="$(git diff --cached -w -b --ignore-blank-lines --ignore-all-space -- 'src/**')"
+  # Strip diff metadata lines, leave only + / - content lines.
+  # Then strip line comments and block-comment lines.
+  local content
+  content="$(
+    printf '%s\n' "$diff_output" \
+      | grep -E '^[+-]' \
+      | grep -Ev '^(\+\+\+|---)' \
+      | sed -E 's|//.*$||' \
+      | sed -E 's|/\*.*\*/||' \
+      | sed -E '/^\s*[+-]\s*$/d'
+  )" || true
+  [[ -n "$content" ]]
+}
+
+reject() {
+  echo "pre-commit: $*" >&2
+  exit 1
+}
+
+# Collect touched features and shared flag.
+declare -A touched_features=()
+touched_shared=0
+for f in "${STAGED[@]}"; do
+  if [[ "$f" =~ ^src/features/([^/]+)/ ]]; then
+    touched_features["${BASH_REMATCH[1]}"]=1
+  elif [[ "$f" =~ ^src/shared/ ]]; then
+    touched_shared=1
+  fi
+done
+
+# Only apply coupling rules if there's an actual semantic src/ change.
+if [[ $skip_coupling -eq 0 ]]; then
+  if [[ ${#touched_features[@]} -gt 0 || $touched_shared -eq 1 ]]; then
+    if has_semantic_src_change; then
+      # Rule 1: per-feature coupling.
+      for feat in "${!touched_features[@]}"; do
+        feature_file_staged=0
+        test_dir_staged=0
+        for f in "${STAGED[@]}"; do
+          [[ "$f" == "features/${feat}.feature" ]] && feature_file_staged=1
+          [[ "$f" =~ ^test/features/${feat}/ ]] && test_dir_staged=1
+        done
+        if [[ $feature_file_staged -eq 0 && $test_dir_staged -eq 0 ]]; then
+          reject "src/features/${feat}/** modified without matching features/${feat}.feature or test/features/${feat}/** change. Add the scenario/test in the same commit, or include [no-feature] in the message for a genuine refactor."
+        fi
+
+        # Rule 3: frozen check.
+        feature_path="features/${feat}.feature"
+        if [[ -f "$feature_path" ]]; then
+          # Read YAML frontmatter between leading ---...--- and check status.
+          if awk 'NR==1 && /^---$/ {in_fm=1; next} in_fm && /^---$/ {exit} in_fm {print}' "$feature_path" \
+               | grep -qE '^status:\s*frozen\s*$'; then
+            reject "feature '${feat}' is frozen. Run /unfreeze-feature ${feat} \"<reason>\" before modifying src/features/${feat}/**."
+          fi
+        fi
+      done
+
+      # Rule 2: shared coupling.
+      if [[ $touched_shared -eq 1 ]]; then
+        any_feature_test_staged=0
+        for f in "${STAGED[@]}"; do
+          if [[ "$f" =~ ^test/features/ ]]; then
+            any_feature_test_staged=1
+            break
+          fi
+        done
+        if [[ $any_feature_test_staged -eq 0 ]]; then
+          reject "src/shared/** modified without any test/features/** change. Shared edits must be verified by at least one feature's tests. Update the consumer tests, or include [no-feature] for a genuine refactor."
+        fi
+      fi
+    fi
+  fi
+fi
+
+# Rule 4: drift linter always runs.
+if [[ -f "scripts/check-features.mjs" ]]; then
+  if ! node scripts/check-features.mjs; then
+    echo "pre-commit: check-features drift detected (see above). Fix via /add-scenario or remove orphan tests." >&2
+    exit 1
+  fi
+fi
+
+exit 0

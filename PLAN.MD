@@ -295,36 +295,37 @@ Write. Default dry-run.
 
 ## 4. Project Structure
 
+Feature-isolated layout: each MCP tool owns its own folder under `src/features/<name>/`, a matching `features/<name>.feature` spec, and a matching `test/features/<name>/` test directory. Cross-feature code lives under `src/shared/`. Scanner logic (ripgrep wrapper, classify) lives inside each feature's own folder — there is no global `scanner/` module. Only genuinely shared bits (e.g. ripgrep argv helpers) move to `src/shared/util/`.
+
 ```
 posthog-stale-flags-mcp/
 ├── src/
 │   ├── index.ts                  # MCP server entrypoint
-│   ├── tools/
-│   │   ├── find_stale_flags.ts
-│   │   ├── propose_cleanup.ts
-│   │   └── archive_flag.ts
-│   ├── scanner/
-│   │   ├── patterns.ts           # grep patterns per SDK
-│   │   ├── scan.ts               # ripgrep wrapper
-│   │   └── classify.ts           # join PostHog state + code refs
-│   ├── posthog/
-│   │   ├── client.ts
-│   │   └── types.ts
-│   ├── safety/
-│   │   ├── paths.ts
-│   │   ├── env.ts
-│   │   └── audit.ts
-│   └── util/
-│       └── snippets.ts
+│   ├── features/
+│   │   ├── find_stale_flags/     # tool.ts + local scan/classify
+│   │   ├── propose_cleanup/
+│   │   └── archive_flag/
+│   └── shared/
+│       ├── posthog/              # client.ts, types.ts
+│       ├── safety/               # paths.ts, env.ts, audit.ts
+│       └── util/                 # snippets.ts, ripgrep helpers
+├── features/                     # Gherkin specs (one per feature)
+│   ├── find_stale_flags.feature
+│   ├── propose_cleanup.feature
+│   └── archive_flag.feature
 ├── test/
 │   ├── fixtures/
 │   │   ├── repo-clean/
 │   │   ├── repo-stale/
 │   │   ├── repo-wrapper/
 │   │   └── repo-dangling/
-│   └── tools/
-│       ├── find_stale_flags.test.ts
-│       └── archive_flag.test.ts
+│   └── features/                 # one scenario per test file
+│       ├── find_stale_flags/
+│       ├── propose_cleanup/
+│       └── archive_flag/
+├── scripts/
+│   ├── check-features.mjs        # .feature ↔ test drift linter
+│   └── hooks/pre-commit          # coupling + freeze enforcement
 ├── docs/
 │   ├── README.md
 │   ├── INSTALL.md
@@ -334,6 +335,8 @@ posthog-stale-flags-mcp/
 ├── biome.json
 └── .env.example
 ```
+
+The folder split is load-bearing: the pre-commit hook enforces *coupled commits* — edits under `src/features/<X>/**` require a matching `features/<X>.feature` or `test/features/<X>/**` to also be staged, and edits under `src/shared/**` require at least one `test/features/**` file to also be staged. See [CLAUDE.md](CLAUDE.md) "Coding workflow" for the full rules.
 
 ## 5. Demo App Requirements
 

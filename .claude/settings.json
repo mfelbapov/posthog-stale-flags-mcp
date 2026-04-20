@@ -28,7 +28,20 @@
       "Bash(mkdir:*)",
       "Bash(tree:*)",
       "Edit(/.claude/skills/commit-and-push/**)",
-      "Edit(/.claude/skills/push-merge-main/**)"
+      "Edit(/.claude/skills/push-merge-main/**)",
+      "Edit(/.claude/skills/add-scenario/**)",
+      "Edit(/.claude/skills/propagate-shared-change/**)",
+      "Edit(/.claude/skills/freeze-feature/**)",
+      "Edit(/.claude/skills/unfreeze-feature/**)",
+      "Edit(/features/**)",
+      "Edit(/test/features/**)",
+      "Edit(/scripts/**)",
+      "Bash(node scripts/check-features.mjs:*)",
+      "Bash(scripts/hooks/pre-commit:*)",
+      "Bash(chmod +x:*)",
+      "Bash(bash -n:*)",
+      "Bash(git fetch *)",
+      "Bash(git merge *)"
     ],
     "deny": [
       "Bash(rm -rf:*)",

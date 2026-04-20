@@ -53,20 +53,32 @@ PostHog has native tag support on feature flags. Any flag tagged with the config
 
 ## Project structure (target)
 
+Feature-isolated: each MCP tool owns its own folder under `src/features/<name>/`, a `.feature` spec, and a test directory. Cross-feature code lives under `src/shared/`.
+
 ```
 src/
 ├── index.ts                # MCP server entrypoint
-├── tools/
-│   ├── find_stale_flags.ts
-│   ├── propose_cleanup.ts
-│   └── archive_flag.ts
-├── scanner/                # patterns.ts, scan.ts, classify.ts
-├── posthog/                # client.ts, types.ts
-├── safety/                 # paths.ts, env.ts, audit.ts
-└── util/                   # snippets.ts
+├── features/
+│   ├── find_stale_flags/   # tool.ts + local scan/classify
+│   ├── propose_cleanup/
+│   └── archive_flag/
+└── shared/
+    ├── posthog/            # client.ts, types.ts
+    ├── safety/             # paths.ts, env.ts, audit.ts
+    └── util/               # snippets.ts, ripgrep helpers
+features/
+├── find_stale_flags.feature
+├── propose_cleanup.feature
+└── archive_flag.feature
 test/
 ├── fixtures/               # repo-clean, repo-stale, repo-permanent, repo-wrapper, repo-dangling, repo-commented
-└── tools/
+└── features/               # one scenario per test file, path mirrors features/
+    ├── find_stale_flags/
+    ├── propose_cleanup/
+    └── archive_flag/
+scripts/
+├── check-features.mjs      # drift linter
+└── hooks/pre-commit        # coupling + freeze enforcement
 ```
 
 ## Build order
@@ -97,3 +109,70 @@ test/
 - Default to writing no comments unless the WHY is non-obvious.
 - Prefer editing existing files over creating new ones.
 - Match the scope of changes to what was asked — no drive-by refactors.
+
+## Coding workflow (TDD with Gherkin specs)
+
+This project uses a somewhat test-driven workflow: Gherkin `.feature` files are human-readable specs (not executed via a BDD runner), and `vitest` is the executable layer. The feature file is the **design artifact**; the test file is the **executable artifact**; both must stay in lockstep.
+
+### The loop
+
+1. **Feature.** A new behavior starts with a `Scenario:` added to `features/<feature>.feature`. Gherkin `Given / When / Then`. One scenario = one testable assertion.
+2. **Failing test.** A matching test file is created at `test/features/<feature>/NN-<slug>.test.ts` with a single `it('<exact scenario title>', ...)` that initially fails (throws or `expect.fail()`).
+3. **Run red.** `pnpm vitest run test/features/<feature>/NN-<slug>.test.ts` — confirm it actually fails for the right reason.
+4. **Code.** Modify `src/features/<feature>/**` until the specific test goes green.
+5. **Run green.** Re-run the test file; confirm green. Move on.
+
+Use the `/add-scenario` skill to drive this loop — it refuses to let you skip steps.
+
+### Feature-isolated folders
+
+Two code regions with different rules:
+
+- `src/features/<X>/**` — owned by `features/<X>.feature` and `test/features/<X>/**`. One feature = one folder. Reaching across features (importing from `src/features/Y/` inside `src/features/X/`) is a smell — the shared piece belongs in `src/shared/`.
+- `src/shared/**` — cross-feature code (PostHog client, safety utilities, snippet helpers). Owned by no single feature. Changes here must be verified against *every* consuming feature.
+
+### Coupled-commit rule (enforced by the pre-commit hook)
+
+- If a commit modifies `src/features/<X>/**`, it must also stage `features/<X>.feature` **or** a file under `test/features/<X>/**`. Otherwise the commit is rejected.
+- If a commit modifies `src/shared/**`, it must also stage at least one file under `test/features/**/`. Otherwise the commit is rejected.
+- Whitespace-only and comment-only edits to `src/**` do **not** trigger the coupling check (the hook strips those before deciding). Renames, import reordering, and format-only passes fall through without fuss.
+
+### One-scenario-per-test-file convention
+
+- Test file name stem must match a `Scenario:` title (slugified). A scenario with no matching test file, or a test file with no matching scenario, is a drift error and fails `pnpm precommit` via `scripts/check-features.mjs`.
+- `it()` string must be the **exact scenario title**, not a paraphrase. The linter diffs these as strings.
+- Prefix test filenames with a two-digit ordinal (`01-`, `02-`) so ordering is stable and scenario additions don't reshuffle the directory.
+
+### Re-read-before-edit rule (LLM discipline)
+
+Before modifying any `test/features/**/*.test.ts`, re-read the corresponding `.feature` file. Before modifying any `src/features/<X>/**`, re-read both `features/<X>.feature` and the test files for that feature. This keeps scenario, test, and code aligned during the editing loop — the LLM's own memory is not a reliable anchor, the files are.
+
+### Frozen features
+
+Once a feature is complete, run the `/freeze-feature <name>` skill. This adds `status: frozen` to the feature file's frontmatter. The pre-commit hook then rejects any edit to `src/features/<X>/**` for frozen features. To modify a frozen feature, run `/unfreeze-feature <name> "<reason>"` first — this removes the freeze and appends a history entry with the reason. The unfreeze is auditable in `git log`.
+
+### The `[no-feature]` trailer (escape hatch)
+
+For genuine behavior-preserving refactors (pure renames, import reordering, moving code between shared utilities) where coupling doesn't apply, include a `[no-feature]` trailer in the commit message. The hook skips coupling checks when this trailer is present. Use it sparingly — it's auditable in `git log`, and routine use means the coupling rule is miscalibrated. If you reach for it more than occasionally, either the feature boundaries are wrong or `src/shared/` is doing too much.
+
+### Workflow skills
+
+- **`/add-scenario <feature> <gherkin>`** — append a new scenario, generate its failing test, enforce red → green. Use when adding any new user-visible behavior.
+- **`/propagate-shared-change <path>`** — intelligence layer for `src/shared/**` edits. Finds consumer features, runs their tests, walks failures. Use before editing anything under `src/shared/`.
+- **`/freeze-feature <feature>`** — mark a feature done. Requires all tests green. Use when a feature is stable and you don't want silent drive-by edits.
+- **`/unfreeze-feature <feature> "<reason>"`** — explicit, auditable unfreeze. Use when you need to modify a frozen feature — the reason ends up in `git log`.
+
+### Scope of brutality
+
+The coupled-commit rule and one-scenario-per-file convention apply to `src/features/**` and `src/shared/**`. Small pure utilities that don't correspond to user-visible behavior (internal type helpers, format utilities) can live under `src/shared/util/` with plain vitest tests — no `.feature` file needed. Don't write Gherkin for things that aren't tool-visible behavior; the ceremony isn't worth it.
+
+### Installing the pre-commit hook
+
+The hook script lives at `scripts/hooks/pre-commit`. It's not auto-installed. After cloning, run:
+
+```bash
+ln -s ../../scripts/hooks/pre-commit .git/hooks/pre-commit
+chmod +x scripts/hooks/pre-commit
+```
+
+Without the symlink, the coupling rules and freeze checks are **advisory only** — the drift linter still runs as part of `pnpm precommit`, but commits that skip the gate can land. The hook is the floor; skills are the ergonomic layer; `pnpm precommit` is the belt on top.
